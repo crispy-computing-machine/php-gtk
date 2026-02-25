@@ -3,6 +3,24 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+
+if (Get-Variable PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) {
+    $global:PSNativeCommandUseErrorActionPreference = $false
+}
+
+function Invoke-CheckedProcess {
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [Parameter(Mandatory = $false)][string[]]$ArgumentList = @(),
+        [Parameter(Mandatory = $false)][string]$FailMessage = 'External command failed.'
+    )
+
+    $proc = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -Wait -PassThru -NoNewWindow
+    if ($proc.ExitCode -ne 0) {
+        throw "$FailMessage ExitCode=$($proc.ExitCode)"
+    }
+}
 
 Write-Host "Preparing AppVeyor build for php-gtk (PHP $env:PHP_VERSION, $env:ARCH)"
 
@@ -22,16 +40,26 @@ if (-not (Get-Command buildconf -ErrorAction SilentlyContinue)) {
         New-Item -ItemType Directory -Path 'C:\tools' | Out-Null
     }
 
+    $needsClone = $true
     if (Test-Path $phpSdkDir) {
-        if (-not (Test-Path (Join-Path $phpSdkDir '.git'))) {
+        if (Test-Path (Join-Path $phpSdkDir '.git')) {
+            try {
+                Invoke-CheckedProcess -FilePath 'git' -ArgumentList @('-C', $phpSdkDir, 'rev-parse', '--is-inside-work-tree') -FailMessage 'php-sdk-binary-tools directory exists but is not a valid git repository.'
+                $needsClone = $false
+                Write-Host 'Reusing existing php-sdk-binary-tools checkout.'
+            } catch {
+                Write-Host 'Existing php-sdk-binary-tools checkout is invalid; removing and recloning...'
+                Remove-Item -Recurse -Force $phpSdkDir
+            }
+        } else {
             Write-Host 'Found stale PHP SDK tools directory; removing it before clone...'
             Remove-Item -Recurse -Force $phpSdkDir
         }
     }
 
-    if (-not (Test-Path $phpSdkDir)) {
+    if ($needsClone) {
         Write-Host 'PHP SDK binary tools not found; cloning php-sdk-binary-tools...'
-        cmd /c "git clone --depth 1 https://github.com/php/php-sdk-binary-tools.git $phpSdkDir"
+        Invoke-CheckedProcess -FilePath 'git' -ArgumentList @('clone', '--depth', '1', 'https://github.com/php/php-sdk-binary-tools.git', $phpSdkDir) -FailMessage 'Failed to clone php-sdk-binary-tools.'
 
         if (-not (Test-Path $phpSdkDir)) {
             throw 'Failed to clone php-sdk-binary-tools into C:\tools. Verify git/network access in AppVeyor.'
@@ -55,7 +83,7 @@ if (-not (Get-Command nmake -ErrorAction SilentlyContinue)) {
 if (-not (Test-Path configure.js)) {
     if (Get-Command buildconf -ErrorAction SilentlyContinue) {
         Write-Host 'Generating configure.js via buildconf...'
-        cmd /c buildconf --force
+        Invoke-CheckedProcess -FilePath 'cmd' -ArgumentList @('/c', 'buildconf', '--force') -FailMessage 'buildconf failed to generate configure.js.'
     }
 }
 
@@ -64,8 +92,8 @@ if (-not (Test-Path configure.js)) {
 }
 
 Write-Host 'configure.js found, attempting Windows extension build...'
-cscript /nologo configure.js --enable-gtk
-nmake
+Invoke-CheckedProcess -FilePath 'cscript' -ArgumentList @('/nologo', 'configure.js', '--enable-gtk') -FailMessage 'configure.js failed.'
+Invoke-CheckedProcess -FilePath 'nmake' -ArgumentList @() -FailMessage 'nmake failed.'
 
 $artifactDir = 'artifacts'
 $zipPath = Join-Path $artifactDir 'php-gtk-build.zip'
