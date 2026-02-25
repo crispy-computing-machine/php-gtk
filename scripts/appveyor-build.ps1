@@ -157,32 +157,26 @@ if (-not (Get-Command nmake -ErrorAction SilentlyContinue)) {
     throw 'nmake is still missing after loading VsDevCmd. Ensure Visual Studio Build Tools (VC++) are installed in this AppVeyor image.'
 }
 
-if (-not (Test-Path configure.js)) {
-    if (Get-Command buildconf -ErrorAction SilentlyContinue) {
-        Write-Host 'Generating configure.js via buildconf...'
-        try {
-            Invoke-CheckedProcess -FilePath 'cmd' -ArgumentList @('/c', 'buildconf', '--force') -FailMessage 'buildconf failed to generate configure.js.'
-        } catch {
-            Write-Host "buildconf failed: $($_.Exception.Message)"
-        }
-    }
-}
-
-if (-not (Test-Path configure.js) -and (Test-Path config.w32)) {
-    Write-Host 'configure.js still missing; generating fallback configure.js from config.w32 for extension build.'
-    Copy-Item -Path 'config.w32' -Destination 'configure.js' -Force
-}
-
-if (-not (Test-Path configure.js)) {
-    throw 'configure.js is still missing after buildconf and config.w32 fallback. Ensure config.w32 is present and PHP SDK binary tools are installed.'
-}
-
+$nativeBuildRequested = Test-GtkSdkReady
 $nativeBuildSucceeded = $false
-if (Test-GtkSdkReady) {
-    Write-Host "GTK SDK detected at $env:GTK_SDK_ROOT; attempting Windows extension build..."
+
+if ($nativeBuildRequested) {
+    Write-Host "GTK SDK detected at $env:GTK_SDK_ROOT; preparing native Windows extension build..."
     $env:INCLUDE = "$env:GTK_SDK_ROOT\include;$env:INCLUDE"
     $env:LIB = "$env:GTK_SDK_ROOT\lib;$env:LIB"
 
+    if (-not (Test-Path configure.js)) {
+        if (Get-Command buildconf -ErrorAction SilentlyContinue) {
+            Write-Host 'Generating configure.js via buildconf...'
+            Invoke-CheckedProcess -FilePath 'cmd' -ArgumentList @('/c', 'buildconf', '--force') -FailMessage 'buildconf failed to generate configure.js.'
+        }
+    }
+
+    if (-not (Test-Path configure.js)) {
+        throw 'configure.js is missing for native build. Ensure PHP SDK binary tools are installed and buildconf can run successfully.'
+    }
+
+    Write-Host 'configure.js found, attempting Windows extension build...'
     Invoke-CheckedProcess -FilePath 'cscript' -ArgumentList @('/nologo', 'configure.js', '--enable-gtk') -FailMessage 'configure.js failed.'
     Invoke-CheckedProcess -FilePath 'nmake' -ArgumentList @('/nologo') -FailMessage 'nmake failed.'
 
@@ -193,7 +187,7 @@ if (Test-GtkSdkReady) {
         throw 'Native build completed but php_gtk.dll was not produced in x64\Release.'
     }
 } else {
-    Write-Host 'GTK_SDK_ROOT not configured for MSVC GTK headers/libs; skipping native Windows compile and running lint/artifact packaging only.'
+    Write-Host 'GTK_SDK_ROOT not configured for MSVC GTK headers/libs; skipping native Windows compile (configure.js/buildconf/nmake).'
 }
 
 $artifactDir = 'artifacts'

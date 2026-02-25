@@ -71,7 +71,7 @@ extension=gtk
 - Native Windows extension compilation now runs only when `GTK_SDK_ROOT` points to an MSVC-compatible GTK SDK containing:
   - `include\gtk-3.0`
   - `lib`
-- Without `GTK_SDK_ROOT`, CI intentionally skips native compile and still runs lint + artifact packaging.
+- Without `GTK_SDK_ROOT`, CI intentionally skips native compile entirely (including configure.js/buildconf/nmake) and still runs lint + artifact packaging.
 
 ## Example
 
