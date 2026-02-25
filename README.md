@@ -67,7 +67,11 @@ extension=gtk
 ## Windows/AppVeyor
 
 - Added `appveyor.yml` and `scripts/appveyor-build.ps1`.
-- Script installs PHP (if needed), validates wrapper PHP files, and attempts a native Windows build when `configure.js` exists.
+- Script installs PHP (if needed) and validates wrapper PHP files.
+- Native Windows extension compilation now runs only when `GTK_SDK_ROOT` points to an MSVC-compatible GTK SDK containing:
+  - `include\gtk-3.0`
+  - `lib`
+- Without `GTK_SDK_ROOT`, CI intentionally skips native compile and still runs lint + artifact packaging.
 
 ## Example
 

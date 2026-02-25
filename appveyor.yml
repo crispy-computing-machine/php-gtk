@@ -5,6 +5,7 @@ environment:
   matrix:
     - PHP_VERSION: 8.4.18
       ARCH: x64
+      GTK_SDK_ROOT: ""
 
 cache:
   - C:\ProgramData\chocolatey\lib

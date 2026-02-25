@@ -35,6 +35,22 @@ function Invoke-CheckedProcess {
 }
 
 
+
+function Test-GtkSdkReady {
+    if (-not $env:GTK_SDK_ROOT) {
+        return $false
+    }
+
+    $includeDir = Join-Path $env:GTK_SDK_ROOT 'include\gtk-3.0'
+    $libDir = Join-Path $env:GTK_SDK_ROOT 'lib'
+
+    if ((Test-Path $includeDir) -and (Test-Path $libDir)) {
+        return $true
+    }
+
+    return $false
+}
+
 function Import-VsBuildEnvironment {
     if (Get-Command nmake -ErrorAction SilentlyContinue) {
         return
@@ -161,22 +177,23 @@ if (-not (Test-Path configure.js)) {
     throw 'configure.js is still missing after buildconf and config.w32 fallback. Ensure config.w32 is present and PHP SDK binary tools are installed.'
 }
 
-Write-Host 'configure.js found, attempting Windows extension build...'
-Invoke-CheckedProcess -FilePath 'cscript' -ArgumentList @('/nologo', 'configure.js', '--enable-gtk') -FailMessage 'configure.js failed.'
-
 $nativeBuildSucceeded = $false
-try {
-    Invoke-CheckedProcess -FilePath 'nmake' -ArgumentList @('/nologo') -FailMessage 'nmake failed.'
-    $nativeBuildSucceeded = $true
-} catch {
-    Write-Warning "Native build did not complete successfully: $($_.Exception.Message)"
-    Write-Warning 'Continuing CI so lint/artifact steps still complete. Check compiler/dependency setup (GTK dev libs, SDK paths) for full native build.'
-}
+if (Test-GtkSdkReady) {
+    Write-Host "GTK SDK detected at $env:GTK_SDK_ROOT; attempting Windows extension build..."
+    $env:INCLUDE = "$env:GTK_SDK_ROOT\include;$env:INCLUDE"
+    $env:LIB = "$env:GTK_SDK_ROOT\lib;$env:LIB"
 
-if ($nativeBuildSucceeded -and (Test-Path 'x64\Release\php_gtk.dll')) {
-    Write-Host 'Native build produced x64\Release\php_gtk.dll'
+    Invoke-CheckedProcess -FilePath 'cscript' -ArgumentList @('/nologo', 'configure.js', '--enable-gtk') -FailMessage 'configure.js failed.'
+    Invoke-CheckedProcess -FilePath 'nmake' -ArgumentList @('/nologo') -FailMessage 'nmake failed.'
+
+    if (Test-Path 'x64\Release\php_gtk.dll') {
+        $nativeBuildSucceeded = $true
+        Write-Host 'Native build produced x64\Release\php_gtk.dll'
+    } else {
+        throw 'Native build completed but php_gtk.dll was not produced in x64\Release.'
+    }
 } else {
-    Write-Warning 'php_gtk.dll was not produced in this run.'
+    Write-Host 'GTK_SDK_ROOT not configured for MSVC GTK headers/libs; skipping native Windows compile and running lint/artifact packaging only.'
 }
 
 $artifactDir = 'artifacts'
