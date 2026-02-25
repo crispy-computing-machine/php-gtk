@@ -14,9 +14,28 @@ if (-not (Get-Command php -ErrorAction SilentlyContinue)) {
 
 $phpSdkDir = 'C:\tools\php-sdk-binary-tools'
 if (-not (Get-Command buildconf -ErrorAction SilentlyContinue)) {
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        choco install git --no-progress -y
+    }
+
+    if (-not (Test-Path 'C:\tools')) {
+        New-Item -ItemType Directory -Path 'C:\tools' | Out-Null
+    }
+
+    if (Test-Path $phpSdkDir) {
+        if (-not (Test-Path (Join-Path $phpSdkDir '.git'))) {
+            Write-Host 'Found stale PHP SDK tools directory; removing it before clone...'
+            Remove-Item -Recurse -Force $phpSdkDir
+        }
+    }
+
     if (-not (Test-Path $phpSdkDir)) {
         Write-Host 'PHP SDK binary tools not found; cloning php-sdk-binary-tools...'
-        git clone --depth 1 https://github.com/php/php-sdk-binary-tools.git $phpSdkDir
+        cmd /c "git clone --depth 1 https://github.com/php/php-sdk-binary-tools.git $phpSdkDir"
+
+        if (-not (Test-Path $phpSdkDir)) {
+            throw 'Failed to clone php-sdk-binary-tools into C:\tools. Verify git/network access in AppVeyor.'
+        }
     }
 
     $env:Path += ';C:\tools\php-sdk-binary-tools;C:\tools\php-sdk-binary-tools\bin'
