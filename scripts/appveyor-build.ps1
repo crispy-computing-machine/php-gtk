@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 Write-Host "Preparing AppVeyor build for php-gtk (PHP $env:PHP_VERSION, $env:ARCH)"
 
 if (-not (Get-Command php -ErrorAction SilentlyContinue)) {
-    choco install php --version=8.4.0 -y
+    choco install php --version=8.4.18 -y
     $env:Path += ';C:\tools\php84'
 }
 
