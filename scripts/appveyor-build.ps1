@@ -16,7 +16,19 @@ function Invoke-CheckedProcess {
         [Parameter(Mandatory = $false)][string]$FailMessage = 'External command failed.'
     )
 
-    $proc = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -Wait -PassThru -NoNewWindow
+    $cleanArgs = @()
+    foreach ($arg in $ArgumentList) {
+        if ($null -ne $arg -and $arg -ne '') {
+            $cleanArgs += $arg
+        }
+    }
+
+    if ($cleanArgs.Count -gt 0) {
+        $proc = Start-Process -FilePath $FilePath -ArgumentList $cleanArgs -Wait -PassThru -NoNewWindow
+    } else {
+        $proc = Start-Process -FilePath $FilePath -Wait -PassThru -NoNewWindow
+    }
+
     if ($proc.ExitCode -ne 0) {
         throw "$FailMessage ExitCode=$($proc.ExitCode)"
     }
