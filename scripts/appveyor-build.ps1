@@ -12,6 +12,16 @@ if (-not (Get-Command php -ErrorAction SilentlyContinue)) {
     $env:Path += ';C:\tools\php84'
 }
 
+$phpSdkDir = 'C:\tools\php-sdk-binary-tools'
+if (-not (Get-Command buildconf -ErrorAction SilentlyContinue)) {
+    if (-not (Test-Path $phpSdkDir)) {
+        Write-Host 'PHP SDK binary tools not found; cloning php-sdk-binary-tools...'
+        git clone --depth 1 https://github.com/php/php-sdk-binary-tools.git $phpSdkDir
+    }
+
+    $env:Path += ';C:\tools\php-sdk-binary-tools;C:\tools\php-sdk-binary-tools\bin'
+}
+
 php -v
 
 if ($PrepareOnly) {
@@ -19,20 +29,24 @@ if ($PrepareOnly) {
     exit 0
 }
 
+if (-not (Get-Command nmake -ErrorAction SilentlyContinue)) {
+    throw 'nmake is missing. Ensure Visual Studio Build Tools are available in this AppVeyor image.'
+}
+
 if (-not (Test-Path configure.js)) {
     if (Get-Command buildconf -ErrorAction SilentlyContinue) {
         Write-Host 'Generating configure.js via buildconf...'
-        buildconf
+        cmd /c buildconf --force
     }
 }
 
-if (Test-Path configure.js) {
-    Write-Host 'configure.js found, attempting Windows extension build...'
-    cscript /nologo configure.js --enable-gtk
-    nmake
-} else {
-    throw 'configure.js is still missing. Add config.w32 and ensure PHP SDK build tools are present.'
+if (-not (Test-Path configure.js)) {
+    throw 'configure.js is still missing after running buildconf. Ensure config.w32 is present and PHP SDK binary tools are installed.'
 }
+
+Write-Host 'configure.js found, attempting Windows extension build...'
+cscript /nologo configure.js --enable-gtk
+nmake
 
 $artifactDir = 'artifacts'
 $zipPath = Join-Path $artifactDir 'php-gtk-build.zip'
