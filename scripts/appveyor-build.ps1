@@ -22,6 +22,52 @@ function Invoke-CheckedProcess {
     }
 }
 
+
+function Import-VsBuildEnvironment {
+    if (Get-Command nmake -ErrorAction SilentlyContinue) {
+        return
+    }
+
+    $vswhere = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe'
+    $vsDevCmd = $null
+
+    if (Test-Path $vswhere) {
+        $installPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+        if ($LASTEXITCODE -eq 0 -and $installPath) {
+            $candidate = Join-Path $installPath 'Common7\Tools\VsDevCmd.bat'
+            if (Test-Path $candidate) {
+                $vsDevCmd = $candidate
+            }
+        }
+    }
+
+    if (-not $vsDevCmd) {
+        $fallback = 'C:\Program Files\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat'
+        if (Test-Path $fallback) {
+            $vsDevCmd = $fallback
+        }
+    }
+
+    if (-not $vsDevCmd) {
+        throw 'Could not locate VsDevCmd.bat to initialize MSVC tools. Ensure Visual Studio Build Tools are installed in AppVeyor.'
+    }
+
+    Write-Host "Initializing MSVC build environment via: $vsDevCmd"
+    $envDump = cmd /s /c "`"$vsDevCmd`" -arch=x64 -host_arch=x64 >nul && set"
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Failed to initialize Visual Studio developer command prompt environment.'
+    }
+
+    foreach ($line in $envDump) {
+        $idx = $line.IndexOf('=')
+        if ($idx -gt 0) {
+            $name = $line.Substring(0, $idx)
+            $value = $line.Substring($idx + 1)
+            Set-Item -Path "Env:$name" -Value $value
+        }
+    }
+}
+
 Write-Host "Preparing AppVeyor build for php-gtk (PHP $env:PHP_VERSION, $env:ARCH)"
 
 if (-not (Get-Command php -ErrorAction SilentlyContinue)) {
@@ -76,8 +122,10 @@ if ($PrepareOnly) {
     exit 0
 }
 
+Import-VsBuildEnvironment
+
 if (-not (Get-Command nmake -ErrorAction SilentlyContinue)) {
-    throw 'nmake is missing. Ensure Visual Studio Build Tools are available in this AppVeyor image.'
+    throw 'nmake is still missing after loading VsDevCmd. Ensure Visual Studio Build Tools (VC++) are installed in this AppVeyor image.'
 }
 
 if (-not (Test-Path configure.js)) {
