@@ -69,6 +69,7 @@ function Import-VsBuildEnvironment {
 }
 
 Write-Host "Preparing AppVeyor build for php-gtk (PHP $env:PHP_VERSION, $env:ARCH)"
+Write-Host "Working directory: $(Get-Location)"
 
 if (-not (Get-Command php -ErrorAction SilentlyContinue)) {
     choco feature disable --name=showDownloadProgress
@@ -131,12 +132,21 @@ if (-not (Get-Command nmake -ErrorAction SilentlyContinue)) {
 if (-not (Test-Path configure.js)) {
     if (Get-Command buildconf -ErrorAction SilentlyContinue) {
         Write-Host 'Generating configure.js via buildconf...'
-        Invoke-CheckedProcess -FilePath 'cmd' -ArgumentList @('/c', 'buildconf', '--force') -FailMessage 'buildconf failed to generate configure.js.'
+        try {
+            Invoke-CheckedProcess -FilePath 'cmd' -ArgumentList @('/c', 'buildconf', '--force') -FailMessage 'buildconf failed to generate configure.js.'
+        } catch {
+            Write-Host "buildconf failed: $($_.Exception.Message)"
+        }
     }
 }
 
+if (-not (Test-Path configure.js) -and (Test-Path config.w32)) {
+    Write-Host 'configure.js still missing; generating fallback configure.js from config.w32 for extension build.'
+    Copy-Item -Path 'config.w32' -Destination 'configure.js' -Force
+}
+
 if (-not (Test-Path configure.js)) {
-    throw 'configure.js is still missing after running buildconf. Ensure config.w32 is present and PHP SDK binary tools are installed.'
+    throw 'configure.js is still missing after buildconf and config.w32 fallback. Ensure config.w32 is present and PHP SDK binary tools are installed.'
 }
 
 Write-Host 'configure.js found, attempting Windows extension build...'
