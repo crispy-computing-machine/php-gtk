@@ -19,16 +19,19 @@ if ($PrepareOnly) {
     exit 0
 }
 
-if (Test-Path configure.js) {
-    Write-Host 'configure.js found, attempting Windows extension build...'
+if (-not (Test-Path configure.js)) {
     if (Get-Command buildconf -ErrorAction SilentlyContinue) {
+        Write-Host 'Generating configure.js via buildconf...'
         buildconf
     }
+}
 
+if (Test-Path configure.js) {
+    Write-Host 'configure.js found, attempting Windows extension build...'
     cscript /nologo configure.js --enable-gtk
     nmake
 } else {
-    Write-Host 'configure.js missing; skipping native build. This repo currently focuses on *nix config.m4.'
+    throw 'configure.js is still missing. Add config.w32 and ensure PHP SDK build tools are present.'
 }
 
 $artifactDir = 'artifacts'

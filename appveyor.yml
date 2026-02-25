@@ -6,6 +6,10 @@ environment:
     - PHP_VERSION: 8.4.18
       ARCH: x64
 
+cache:
+  - C:\ProgramData\chocolatey\lib
+  - C:\tools\php84
+
 install:
   - ps: .\scripts\appveyor-build.ps1 -PrepareOnly
 
