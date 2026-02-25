@@ -11,6 +11,7 @@ cache:
   - C:\ProgramData\chocolatey\lib
   - C:\tools\php84
   - C:\tools\php-sdk-binary-tools
+  - C:\tools\vcpkg
 
 install:
   - ps: .\scripts\appveyor-build.ps1 -PrepareOnly

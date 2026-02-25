@@ -34,17 +34,44 @@ function Invoke-CheckedProcess {
     }
 }
 
+function Ensure-GtkSdk {
+    if ($env:GTK_SDK_ROOT -and (Test-Path $env:GTK_SDK_ROOT)) {
+        return
+    }
 
+    $vcpkgDir = 'C:\tools\vcpkg'
+
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        choco install git --no-progress -y
+    }
+
+    if (-not (Test-Path $vcpkgDir)) {
+        Write-Host 'Installing vcpkg to provision GTK SDK dependencies...'
+        Invoke-CheckedProcess -FilePath 'git' -ArgumentList @('clone', 'https://github.com/microsoft/vcpkg.git', $vcpkgDir) -FailMessage 'Failed to clone vcpkg.'
+    }
+
+    Push-Location $vcpkgDir
+    try {
+        Invoke-CheckedProcess -FilePath 'cmd' -ArgumentList @('/c', 'bootstrap-vcpkg.bat') -FailMessage 'Failed to bootstrap vcpkg.'
+        Invoke-CheckedProcess -FilePath (Join-Path $vcpkgDir 'vcpkg.exe') -ArgumentList @('install', 'gtk:x64-windows') -FailMessage 'Failed to install gtk:x64-windows with vcpkg.'
+    } finally {
+        Pop-Location
+    }
+
+    $env:GTK_SDK_ROOT = Join-Path $vcpkgDir 'installed\x64-windows'
+    Write-Host "Configured GTK_SDK_ROOT=$env:GTK_SDK_ROOT"
+}
 
 function Test-GtkSdkReady {
     if (-not $env:GTK_SDK_ROOT) {
         return $false
     }
 
-    $includeDir = Join-Path $env:GTK_SDK_ROOT 'include\gtk-3.0'
+    $includeDirGtk3 = Join-Path $env:GTK_SDK_ROOT 'include\gtk-3.0'
+    $includeDirGtk = Join-Path $env:GTK_SDK_ROOT 'include\gtk'
     $libDir = Join-Path $env:GTK_SDK_ROOT 'lib'
 
-    if ((Test-Path $includeDir) -and (Test-Path $libDir)) {
+    if ((Test-Path $libDir) -and ((Test-Path $includeDirGtk3) -or (Test-Path $includeDirGtk))) {
         return $true
     }
 
@@ -157,6 +184,8 @@ if (-not (Get-Command nmake -ErrorAction SilentlyContinue)) {
     throw 'nmake is still missing after loading VsDevCmd. Ensure Visual Studio Build Tools (VC++) are installed in this AppVeyor image.'
 }
 
+Ensure-GtkSdk
+
 $nativeBuildRequested = Test-GtkSdkReady
 $nativeBuildSucceeded = $false
 
@@ -187,7 +216,7 @@ if ($nativeBuildRequested) {
         throw 'Native build completed but php_gtk.dll was not produced in x64\Release.'
     }
 } else {
-    Write-Host 'GTK_SDK_ROOT not configured for MSVC GTK headers/libs; skipping native Windows compile (configure.js/buildconf/nmake).'
+    throw 'GTK SDK dependency setup failed: GTK_SDK_ROOT is not usable after provisioning.'
 }
 
 $artifactDir = 'artifacts'

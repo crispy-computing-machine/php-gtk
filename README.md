@@ -68,10 +68,8 @@ extension=gtk
 
 - Added `appveyor.yml` and `scripts/appveyor-build.ps1`.
 - Script installs PHP (if needed) and validates wrapper PHP files.
-- Native Windows extension compilation now runs only when `GTK_SDK_ROOT` points to an MSVC-compatible GTK SDK containing:
-  - `include\gtk-3.0`
-  - `lib`
-- Without `GTK_SDK_ROOT`, CI intentionally skips native compile entirely (including configure.js/buildconf/nmake) and still runs lint + artifact packaging.
+- AppVeyor now provisions GTK automatically via `vcpkg install gtk:x64-windows` and sets `GTK_SDK_ROOT` to `C:\\tools\\vcpkg\\installed\\x64-windows` for native compile.
+- You can still override `GTK_SDK_ROOT` manually to use your own MSVC-compatible GTK SDK.
 
 ## Example
 
