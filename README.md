@@ -69,6 +69,7 @@ extension=gtk
 - Added `appveyor.yml` and `scripts/appveyor-build.ps1`.
 - Script installs PHP (if needed) and validates wrapper PHP files.
 - AppVeyor now provisions GTK automatically via `vcpkg install gtk:x64-windows` and sets `GTK_SDK_ROOT` to `C:\\tools\\vcpkg\\installed\\x64-windows` for native compile.
+- Native Windows commands (`buildconf`, `configure.js`, `nmake`) are executed inside `VsDevCmd.bat` using a single cmd invocation to avoid shell environment import crashes.
 - You can still override `GTK_SDK_ROOT` manually to use your own MSVC-compatible GTK SDK.
 
 ## Example
