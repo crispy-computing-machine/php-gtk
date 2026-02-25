@@ -1,0 +1,239 @@
+param(
+    [switch]$PrepareOnly
+)
+
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+
+if (Get-Variable PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) {
+    $global:PSNativeCommandUseErrorActionPreference = $false
+}
+
+function Invoke-CheckedProcess {
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [Parameter(Mandatory = $false)][string[]]$ArgumentList = @(),
+        [Parameter(Mandatory = $false)][string]$FailMessage = 'External command failed.'
+    )
+
+    $cleanArgs = @()
+    foreach ($arg in $ArgumentList) {
+        if ($null -ne $arg -and $arg -ne '') {
+            $cleanArgs += $arg
+        }
+    }
+
+    if ($cleanArgs.Count -gt 0) {
+        $proc = Start-Process -FilePath $FilePath -ArgumentList $cleanArgs -Wait -PassThru -NoNewWindow
+    } else {
+        $proc = Start-Process -FilePath $FilePath -Wait -PassThru -NoNewWindow
+    }
+
+    if ($proc.ExitCode -ne 0) {
+        throw "$FailMessage ExitCode=$($proc.ExitCode)"
+    }
+}
+
+function Get-VsDevCmdPath {
+    $vswhere = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe'
+
+    if (Test-Path $vswhere) {
+        $installPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+        if ($LASTEXITCODE -eq 0 -and $installPath) {
+            $candidate = Join-Path $installPath 'Common7\Tools\VsDevCmd.bat'
+            if (Test-Path $candidate) {
+                return $candidate
+            }
+        }
+    }
+
+    $fallbacks = @(
+        'C:\Program Files\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat',
+        'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat'
+    )
+
+    foreach ($fallback in $fallbacks) {
+        if (Test-Path $fallback) {
+            return $fallback
+        }
+    }
+
+    return $null
+}
+
+function Invoke-InVsDevCmd {
+    param(
+        [Parameter(Mandatory = $true)][string]$VsDevCmd,
+        [Parameter(Mandatory = $true)][string]$Command,
+        [Parameter(Mandatory = $true)][string]$FailMessage
+    )
+
+    $fullCommand = "`"$VsDevCmd`" -no_logo -arch=x64 -host_arch=x64 >nul && $Command"
+    Invoke-CheckedProcess -FilePath 'cmd' -ArgumentList @('/s', '/c', $fullCommand) -FailMessage $FailMessage
+}
+
+function Ensure-GtkSdk {
+    if ($env:GTK_SDK_ROOT -and (Test-Path $env:GTK_SDK_ROOT)) {
+        return
+    }
+
+    $vcpkgDir = 'C:\tools\vcpkg'
+
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        choco install git --no-progress -y
+    }
+
+    if (-not (Test-Path $vcpkgDir)) {
+        Write-Host 'Installing vcpkg to provision GTK SDK dependencies...'
+        Invoke-CheckedProcess -FilePath 'git' -ArgumentList @('clone', 'https://github.com/microsoft/vcpkg.git', $vcpkgDir) -FailMessage 'Failed to clone vcpkg.'
+    }
+
+    Push-Location $vcpkgDir
+    try {
+        Invoke-CheckedProcess -FilePath 'cmd' -ArgumentList @('/c', 'bootstrap-vcpkg.bat') -FailMessage 'Failed to bootstrap vcpkg.'
+        Invoke-CheckedProcess -FilePath (Join-Path $vcpkgDir 'vcpkg.exe') -ArgumentList @('install', 'gtk:x64-windows') -FailMessage 'Failed to install gtk:x64-windows with vcpkg.'
+    } finally {
+        Pop-Location
+    }
+
+    $env:GTK_SDK_ROOT = Join-Path $vcpkgDir 'installed\x64-windows'
+    Write-Host "Configured GTK_SDK_ROOT=$env:GTK_SDK_ROOT"
+}
+
+function Test-GtkSdkReady {
+    if (-not $env:GTK_SDK_ROOT) {
+        return $false
+    }
+
+    $includeDirGtk3 = Join-Path $env:GTK_SDK_ROOT 'include\gtk-3.0'
+    $includeDirGtk = Join-Path $env:GTK_SDK_ROOT 'include\gtk'
+    $libDir = Join-Path $env:GTK_SDK_ROOT 'lib'
+
+    if ((Test-Path $libDir) -and ((Test-Path $includeDirGtk3) -or (Test-Path $includeDirGtk))) {
+        return $true
+    }
+
+    return $false
+}
+
+Write-Host "Preparing AppVeyor build for php-gtk (PHP $env:PHP_VERSION, $env:ARCH)"
+Write-Host "Working directory: $(Get-Location)"
+
+if (-not (Get-Command php -ErrorAction SilentlyContinue)) {
+    choco feature disable --name=showDownloadProgress
+    choco install php --version=8.4.18 --no-progress -y
+    $env:Path += ';C:\tools\php84'
+}
+
+$phpSdkDir = 'C:\tools\php-sdk-binary-tools'
+if (-not (Get-Command buildconf -ErrorAction SilentlyContinue)) {
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        choco install git --no-progress -y
+    }
+
+    if (-not (Test-Path 'C:\tools')) {
+        New-Item -ItemType Directory -Path 'C:\tools' | Out-Null
+    }
+
+    $needsClone = $true
+    if (Test-Path $phpSdkDir) {
+        if (Test-Path (Join-Path $phpSdkDir '.git')) {
+            try {
+                Invoke-CheckedProcess -FilePath 'git' -ArgumentList @('-C', $phpSdkDir, 'rev-parse', '--is-inside-work-tree') -FailMessage 'php-sdk-binary-tools directory exists but is not a valid git repository.'
+                $needsClone = $false
+                Write-Host 'Reusing existing php-sdk-binary-tools checkout.'
+            } catch {
+                Write-Host 'Existing php-sdk-binary-tools checkout is invalid; removing and recloning...'
+                Remove-Item -Recurse -Force $phpSdkDir
+            }
+        } else {
+            Write-Host 'Found stale PHP SDK tools directory; removing it before clone...'
+            Remove-Item -Recurse -Force $phpSdkDir
+        }
+    }
+
+    if ($needsClone) {
+        Write-Host 'PHP SDK binary tools not found; cloning php-sdk-binary-tools...'
+        Invoke-CheckedProcess -FilePath 'git' -ArgumentList @('clone', '--depth', '1', 'https://github.com/php/php-sdk-binary-tools.git', $phpSdkDir) -FailMessage 'Failed to clone php-sdk-binary-tools.'
+
+        if (-not (Test-Path $phpSdkDir)) {
+            throw 'Failed to clone php-sdk-binary-tools into C:\tools. Verify git/network access in AppVeyor.'
+        }
+    }
+
+    $env:Path += ';C:\tools\php-sdk-binary-tools;C:\tools\php-sdk-binary-tools\bin'
+}
+
+$vsDevCmd = Get-VsDevCmdPath
+if (-not $vsDevCmd) {
+    throw 'Could not locate VsDevCmd.bat to initialize MSVC tools. Ensure Visual Studio Build Tools are installed in AppVeyor.'
+}
+Write-Host "Using VS developer environment: $vsDevCmd"
+
+php -v
+
+if ($PrepareOnly) {
+    Write-Host 'PrepareOnly set; skipping native build steps.'
+    exit 0
+}
+
+Ensure-GtkSdk
+
+$nativeBuildRequested = Test-GtkSdkReady
+if (-not $nativeBuildRequested) {
+    throw 'GTK SDK dependency setup failed: GTK_SDK_ROOT is not usable after provisioning.'
+}
+
+Write-Host "GTK SDK detected at $env:GTK_SDK_ROOT; preparing native Windows extension build..."
+$env:INCLUDE = "$env:GTK_SDK_ROOT\include;$env:INCLUDE"
+$env:LIB = "$env:GTK_SDK_ROOT\lib;$env:LIB"
+
+if (-not (Test-Path configure.js)) {
+    if (Get-Command buildconf -ErrorAction SilentlyContinue) {
+        Write-Host 'Generating configure.js via buildconf...'
+        Invoke-InVsDevCmd -VsDevCmd $vsDevCmd -Command 'buildconf --force' -FailMessage 'buildconf failed to generate configure.js.'
+    }
+}
+
+if (-not (Test-Path configure.js)) {
+    throw 'configure.js is missing for native build. Ensure PHP SDK binary tools are installed and buildconf can run successfully.'
+}
+
+Write-Host 'configure.js found, attempting Windows extension build...'
+Invoke-InVsDevCmd -VsDevCmd $vsDevCmd -Command 'cscript /nologo configure.js --enable-gtk' -FailMessage 'configure.js failed.'
+Invoke-InVsDevCmd -VsDevCmd $vsDevCmd -Command 'nmake /nologo' -FailMessage 'nmake failed.'
+
+if (Test-Path 'x64\Release\php_gtk.dll') {
+    Write-Host 'Native build produced x64\Release\php_gtk.dll'
+} else {
+    throw 'Native build completed but php_gtk.dll was not produced in x64\Release.'
+}
+
+$artifactDir = 'artifacts'
+$zipPath = Join-Path $artifactDir 'php-gtk-build.zip'
+
+if (-not (Test-Path $artifactDir)) {
+    New-Item -ItemType Directory -Path $artifactDir | Out-Null
+}
+
+$itemsToZip = @()
+if (Test-Path 'x64\Release\php_gtk.dll') {
+    $itemsToZip += 'x64\Release\php_gtk.dll'
+}
+if (Test-Path 'README.md') {
+    $itemsToZip += 'README.md'
+}
+if (Test-Path 'examples\hello.php') {
+    $itemsToZip += 'examples\hello.php'
+}
+if (Test-Path 'php-wrapper\Gtk') {
+    $itemsToZip += 'php-wrapper\Gtk'
+}
+
+if ($itemsToZip.Count -gt 0) {
+    if (Test-Path $zipPath) {
+        Remove-Item $zipPath -Force
+    }
+    Compress-Archive -Path $itemsToZip -DestinationPath $zipPath -CompressionLevel Optimal
+    Write-Host "Created AppVeyor artifact zip: $zipPath"
+}

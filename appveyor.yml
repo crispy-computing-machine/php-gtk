@@ -1,0 +1,35 @@
+version: '{build}'
+image: Visual Studio 2022
+
+environment:
+  matrix:
+    - PHP_VERSION: 8.4.18
+      ARCH: x64
+      GTK_SDK_ROOT: ""
+
+cache:
+  - C:\ProgramData\chocolatey\lib
+  - C:\tools\php84
+  - C:\tools\php-sdk-binary-tools
+  - C:\tools\vcpkg
+
+install:
+  - ps: .\scripts\appveyor-build.ps1 -PrepareOnly
+
+build_script:
+  - ps: .\scripts\appveyor-build.ps1
+
+test_script:
+  - cmd: php -l php-wrapper\Gtk\Widget.php
+  - cmd: php -l php-wrapper\Gtk\Window.php
+  - cmd: php -l php-wrapper\Gtk\Box.php
+  - cmd: php -l php-wrapper\Gtk\Button.php
+  - cmd: php -l php-wrapper\Gtk\Label.php
+  - cmd: php -l php-wrapper\Gtk\Entry.php
+  - cmd: php -l php-wrapper\Gtk\Application.php
+
+artifacts:
+  - path: artifacts\php-gtk-build.zip
+    name: php-gtk-build
+  - path: x64\Release\php_gtk.dll
+    name: php-gtk-dll

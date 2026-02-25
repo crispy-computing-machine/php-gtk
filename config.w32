@@ -1,0 +1,6 @@
+ARG_ENABLE('gtk', 'php-gtk support', 'no');
+
+if (PHP_GTK != 'no') {
+    WARNING('Building php-gtk on Windows requires GTK development headers and import libraries available to the build environment.');
+    EXTENSION('gtk', 'src\\gtk.c', true);
+}
