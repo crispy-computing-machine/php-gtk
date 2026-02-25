@@ -22,5 +22,7 @@ test_script:
   - cmd: php -l php-wrapper\Gtk\Application.php
 
 artifacts:
+  - path: artifacts\php-gtk-build.zip
+    name: php-gtk-build
   - path: x64\Release\php_gtk.dll
     name: php-gtk-dll
